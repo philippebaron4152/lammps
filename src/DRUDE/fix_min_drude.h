@@ -13,12 +13,12 @@
 
 #ifdef FIX_CLASS
 // clang-format off
-FixStyle(langevin/drude,FixMinDrude);
+FixStyle(min/drude,FixMinDrude);
 // clang-format on
 #else
 
-#ifndef LMP_FIX_LANGEVIN_DRUDE_H
-#define LMP_FIX_LANGEVIN_DRUDE_H
+#ifndef LMP_FIX_MIN_DRUDE_H
+#define LMP_FIX_MIN_DRUDE_H
 
 #include "fix.h"
 
@@ -32,12 +32,10 @@ class FixMinDrude : public Fix {
   void init() override;
   void setup(int vflag) override;
   void pre_force(int vflag) override;
-  void pre_force_respa(int vflag) override;
   void min_post_force(int vflag) override;
 
  protected:
-  double t_start_core, t_period_core, t_target_core;
-  double t_start_drude, t_period_drude, t_target_drude;
+  int maxiter;
   int tstyle_core, tstyle_drude;
   int tvar_core, tvar_drude;
   char *tstr_core, *tstr_drude;
