@@ -212,7 +212,6 @@ void FixMinDrude::pre_force(int /*vflag*/)
     error->all(FLERR,"Too many iterations");
   
   //update->minimize->setup();
-[
   //modify->addstep_compute_all(update->ntimestep);
   setforce_flag = 1;
   update->minimize->setup_minimal(1);
