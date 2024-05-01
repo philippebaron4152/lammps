@@ -32,15 +32,15 @@ class FixMinDrude : public Fix {
   void init() override;
   void setup(int vflag) override;
   void pre_force(int vflag) override;
-  void min_post_force(int vflag) override;
 
  protected:
+  void force_clear();
   int maxiter;
   int tstyle_core, tstyle_drude;
   int tvar_core, tvar_drude;
   char *tstr_core, *tstr_drude;
   double energy;
-  int tflag, setforce_flag;
+  int tflag, torqueflag, extraflag, external_force_clear, pair_compute_flag, kspace_compute_flag;
 
   class RanMars *random_core, *random_drude;
   int zero;

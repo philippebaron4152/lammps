@@ -16,12 +16,18 @@
 #include "fix_drude.h"
 
 #include "atom.h"
+#include "angle.h"
+#include "atom_vec.h"
+#include "bond.h"
 #include "comm.h"
 #include "compute.h"
+#include "dihedral.h"
 #include "domain.h"
 #include "error.h"
 #include "force.h"
+#include "improper.h"
 #include "input.h"
+#include "kspace.h"
 #include "modify.h"
 #include "random_mars.h"
 #include "update.h"
@@ -30,6 +36,8 @@
 #include "min.h"
 #include "output.h"
 #include "integrate.h"
+#include "neighbor.h"
+#include "pair.h"
 
 #include <cstring>
 #include <cmath>
@@ -121,7 +129,6 @@ int FixMinDrude::setmask()
   int mask = 0;
   mask |= PRE_FORCE;
   mask |= PRE_FORCE_RESPA;
-  mask |= MIN_POST_FORCE;
   return mask;
 }
 
@@ -152,6 +159,17 @@ void FixMinDrude::init()
     if (strcmp(modify->fix[ifix]->style,"drude") == 0) break;
   if (ifix == modify->nfix) error->all(FLERR, "fix min/drude requires fix drude");
   fix_drude = dynamic_cast<FixDrude *>(modify->fix[ifix]);
+
+  if (modify->get_fix_by_id("package_omp")) external_force_clear = 1;
+  torqueflag = extraflag = 0;
+  if (atom->torque_flag) torqueflag = 1;
+  if (atom->avec->forceclearflag) extraflag = 1;
+
+  if (force->pair && force->pair->compute_flag) pair_compute_flag = 1;
+  else pair_compute_flag = 0;
+
+    if (force->kspace && force->kspace->compute_flag) kspace_compute_flag = 1;
+  else kspace_compute_flag = 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -177,62 +195,137 @@ void FixMinDrude::setup(int /*vflag*/)
 }
 
 /* ---------------------------------------------------------------------- */
-void FixMinDrude::min_post_force(int /*vflag*/)
+
+void FixMinDrude::force_clear()
 {
-  // zero forces on non-drude atoms
+  if (external_force_clear) return;
 
-  double **f = atom->f;
-  int nlocal = atom->nlocal;
+  // clear global force array
+  // if either newton flag is set, also include ghosts
 
-  int *drudetype = fix_drude->drudetype;
-  int *type = atom->type;
-  int dim = domain->dimension;
-  if (setforce_flag){
-    for (int i = 0; i < nlocal; i++) {
-      if (drudetype[type[i]] != DRUDE_TYPE) {
-        for (int k=0; k<dim; k++) f[i][k] = 0;
-      }
-    }
+  size_t nbytes = sizeof(double) * atom->nlocal;
+  if (force->newton) nbytes += sizeof(double) * atom->nghost;
+
+  if (nbytes) {
+    memset(&atom->f[0][0],0,3*nbytes);
+    if (torqueflag) memset(&atom->torque[0][0],0,3*nbytes);
+    if (extraflag) atom->avec->force_clear(0,nbytes);
   }
 }
 
+/* ---------------------------------------------------------------------- */
 
+// void FixMinDrude::pre_force(int /*vflag*/)
 void FixMinDrude::pre_force(int /*vflag*/)
 {
-  bigint ntimestep_hold = update->ntimestep;
-  bigint endstep_hold = update->endstep;
-  bigint nsteps_hold = update->nsteps;
-  bigint output_next_hold = output->next;
-  update->whichflag = 2;
-  update->nsteps = maxiter;
-  update->endstep = update->laststep = update->firststep + maxiter;
-  output->next = update->firststep + maxiter + 1;
+  // bigint ntimestep_hold = update->ntimestep;
+  // bigint endstep_hold = update->endstep;
+  // bigint nsteps_hold = update->nsteps;
+  // bigint output_next_hold = output->next;
+  // update->whichflag = 2;
+  // update->nsteps = maxiter;
+  // update->endstep = update->laststep = update->firststep + maxiter;
+  // output->next = update->firststep + maxiter + 1;
 
-  if (update->laststep < 0)
-    error->all(FLERR,"Too many iterations");
+  // if (update->laststep < 0)
+  //   error->all(FLERR,"Too many iterations");
   
-  //update->minimize->setup();
-  //modify->addstep_compute_all(update->ntimestep);
-  setforce_flag = 1;
-  update->minimize->setup_minimal(1);
+  // //modify->addstep_compute_all(update->ntimestep);
+  // setforce_flag = 1;
+  // update->integrate->cleanup();
 
-  int ncalls = neighbor->ncalls;
+  // // update->minimize->setup(0);
+  // update->minimize->setup_minimal(0);
 
-  update->minimize->run(maxiter);
+  // int ncalls = neighbor->ncalls;
 
-  update->minimize->cleanup();
+  // update->minimize->run(maxiter);
+
+  // update->minimize->cleanup();
   
-  setforce_flag = false;
-  update->ntimestep = ntimestep_hold;
-  update->endstep = update->laststep = endstep_hold;
-  update->nsteps = nsteps_hold;
-  output->next = output_next_hold;
-  for (int i = 0; i < modify->ncompute; i++)
-    if (modify->compute[i]->timeflag) modify->compute[i]->clearstep();
+  // setforce_flag = false;
+  // update->ntimestep = ntimestep_hold;
+  // update->endstep = update->laststep = endstep_hold;
+  // update->nsteps = nsteps_hold;
+  // output->next = output_next_hold;
+  // for (int i = 0; i < modify->ncompute; i++)
+  //   if (modify->compute[i]->timeflag) modify->compute[i]->clearstep();
 
 
-  update->whichflag = 1;
-  update->integrate->setup(1);
-  // this may be needed if don't do full init
-  modify->addstep_compute_all(update->ntimestep);
+  // update->whichflag = 1;
+  // update->integrate->setup(1);
+  // // this may be needed if don't do full init
+  // modify->addstep_compute_all(update->ntimestep);
+  // setforce_flag = 0;
+
+  force->setup();
+  int vflag = 0;
+  int eflag = 1;
+  int triclinic = domain->triclinic;
+  // ev_set(update->ntimestep); // ???
+  for (int iter = 0; iter < 100; iter++){
+    // compute forces
+    force_clear();
+    modify->setup_pre_force(0); // should arg be 0?
+
+    if (pair_compute_flag) force->pair->compute(eflag,vflag);
+    else if (force->pair) force->pair->compute_dummy(eflag,vflag);
+
+    if (atom->molecular != Atom::ATOMIC) {
+      if (force->bond) force->bond->compute(eflag,vflag);
+      if (force->angle) force->angle->compute(eflag,vflag);
+      if (force->dihedral) force->dihedral->compute(eflag,vflag);
+      if (force->improper) force->improper->compute(eflag,vflag);
+    }
+
+    if (force->kspace) {
+      force->kspace->setup();
+      if (kspace_compute_flag) force->kspace->compute(eflag,vflag);
+      else force->kspace->compute_dummy(eflag,vflag);
+    }
+
+    modify->setup_pre_reverse(eflag,vflag);
+    if (force->newton) comm->reverse_comm();
+    // move DOs
+    for (int i = 0; i < atom->nlocal; i++){
+      if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
+        for (int j = 0; j < 3; j++){
+          atom->x[i][j] += atom->f[i][j] * 0.0001;
+          printf("force %f %f %f\n", atom->f[i][0], atom->f[i][1], atom->f[i][2]);
+        }
+      }
+    }
+  
+    int nflag = neighbor->decide();
+
+    if (nflag == 0) {
+      comm->forward_comm();
+    } else {
+      if (modify->n_min_pre_exchange) {
+        modify->min_pre_exchange();
+      }
+      if (triclinic) domain->x2lamda(atom->nlocal);
+      domain->pbc();
+      if (domain->box_change) {
+        domain->reset_box();
+        comm->setup();
+        if (neighbor->style) neighbor->setup_bins();
+      }
+      comm->exchange();
+      if (atom->sortfreq > 0 &&
+          update->ntimestep >= atom->nextsort) atom->sort();
+      comm->borders();
+      if (triclinic) domain->lamda2x(atom->nlocal+atom->nghost);
+      if (modify->n_min_pre_neighbor) {
+        modify->min_pre_neighbor();
+      }
+      neighbor->build(1);
+      if (modify->n_min_post_neighbor) {
+        modify->min_post_neighbor();
+      }
+    }
+
+    // print the energy :)
+    printf("Energy: %f\n", force->pair->eng_vdwl + force->pair->eng_coul);
+  }
 }
