@@ -166,6 +166,7 @@ void FixMinDrude::pre_force(int /*vflag*/)
         for (int j = 0; j < 3; j++){
           atom->x[i][j] += atom->f[i][j] * 0.0001;
           printf("force %f %f %f\n", atom->f[i][0], atom->f[i][1], atom->f[i][2]);
+          printf("position %f %f %f\n", atom->x[i][0], atom->x[i][1], atom->x[i][2]);
         }
       }
     }
