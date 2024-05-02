@@ -53,7 +53,7 @@ enum{CONSTANT,EQUAL};
 FixMinDrude::FixMinDrude(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg)
 {
-  maxiter = 100;
+  maxiter = 10;
   energy = 0.;
   fix_drude = nullptr;
 }
@@ -132,13 +132,50 @@ void FixMinDrude::force_clear()
 // void FixMinDrude::pre_force(int /*vflag*/)
 void FixMinDrude::pre_force(int /*vflag*/)
 {
+  int natoms = int(atom->nlocal);
+  double beta[3];
+  double prev_force[natoms][3];
+  double prev_dir[natoms][3];
+
   force->setup();
   int vflag = 0;
   int eflag = 1;
   int triclinic = domain->triclinic;
-  // ev_set(update->ntimestep); // ???
+
+  // initial force calcualtion
+  force_clear();
+  modify->setup_pre_force(0); // should arg be 0?
+
+  if (pair_compute_flag) force->pair->compute(eflag,vflag);
+  else if (force->pair) force->pair->compute_dummy(eflag,vflag);
+
+  if (atom->molecular != Atom::ATOMIC) {
+    if (force->bond) force->bond->compute(eflag,vflag);
+    if (force->angle) force->angle->compute(eflag,vflag);
+    if (force->dihedral) force->dihedral->compute(eflag,vflag);
+    if (force->improper) force->improper->compute(eflag,vflag);
+  }
+
+  if (force->kspace) {
+    force->kspace->setup();
+    if (kspace_compute_flag) force->kspace->compute(eflag,vflag);
+    else force->kspace->compute_dummy(eflag,vflag);
+  }
+
+  modify->setup_pre_reverse(eflag,vflag);
+  if (force->newton) comm->reverse_comm();
+  
+  for (int i = 0; i < atom->nlocal; i++){
+    for (int j = 0; j < 3; j++){
+      prev_force[i][j] = atom->f[i][j];
+      prev_dir[i][j] = -1.0*atom->f[i][j];
+    }
+  }
+  
+  double conv_condition = 0;
   for (int iter = 0; iter < maxiter; iter++){
-    // compute forces
+
+    // move DOs
     force_clear();
     modify->setup_pre_force(0); // should arg be 0?
 
@@ -160,17 +197,122 @@ void FixMinDrude::pre_force(int /*vflag*/)
 
     modify->setup_pre_reverse(eflag,vflag);
     if (force->newton) comm->reverse_comm();
-    // move DOs
+
+    double new_force[natoms][3];
+    double new_dir[natoms][3];
+    double min_x[natoms][3];
+    for (int i = 0; i < atom->nlocal; i++){
+      for (int j = 0; j < 3; j++){
+        new_force[i][j] = atom->f[i][j];
+        new_dir[i][j] = -1.0*atom->f[i][j];
+        min_x[i][j] = atom->x[i][j];
+      }
+    }
+
+    double dot_prev[3] = {0.0, 0.0, 0.0};
+    double dot_new[3] = {0.0, 0.0, 0.0};
     for (int i = 0; i < atom->nlocal; i++){
       if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
         for (int j = 0; j < 3; j++){
-          atom->x[i][j] += atom->f[i][j] * 0.0001;
-          printf("force %f %f %f\n", atom->f[i][0], atom->f[i][1], atom->f[i][2]);
-          printf("position %f %f %f\n", atom->x[i][0], atom->x[i][1], atom->x[i][2]);
+          dot_new[j] += new_force[i][j]*new_force[i][j];
+          dot_prev[j] += prev_force[i][j]*prev_force[i][j];
         }
       }
     }
-  
+    if (iter == 0){
+        beta[0] = 0.0;
+        beta[1] = 0.0;
+        beta[2] = 0.0;
+    } else {
+        for (int j = 0; j < 3; j++){
+          if (dot_prev[j] == 0.0){
+            beta[j] = 0.0;
+          }
+          else{
+            beta[j] = dot_new[j]/dot_prev[j];
+          }
+        }
+    }
+
+    for (int i = 0; i < atom->nlocal; i++){
+      if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
+        for (int j = 0; j < 3; j++){
+          new_dir[i][j] = new_force[i][j] + beta[j]*prev_dir[i][j];
+        }
+      }
+    }
+    for (int i = 0; i < atom->nlocal; i++){
+      for (int j = 0; j < 3; j++){
+        prev_force[i][j] = new_force[i][j];
+        prev_dir[i][j] = new_force[i][j];
+      }
+    }
+
+    double alpha = 0.000001;
+    double min_y = 1E10;
+    for (int k = 0; k < 2000; k++){
+      for (int i = 0; i < atom->nlocal; i++){
+        if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
+          for (int j = 0; j < 3; j++){
+            atom->x[i][j] += new_dir[i][j] * alpha;
+          }
+        }
+      }
+
+      force_clear();
+      modify->setup_pre_force(0); // should arg be 0?
+
+      if (pair_compute_flag) force->pair->compute(eflag,vflag);
+      else if (force->pair) force->pair->compute_dummy(eflag,vflag);
+
+      if (atom->molecular != Atom::ATOMIC) {
+        if (force->bond) force->bond->compute(eflag,vflag);
+        if (force->angle) force->angle->compute(eflag,vflag);
+        if (force->dihedral) force->dihedral->compute(eflag,vflag);
+        if (force->improper) force->improper->compute(eflag,vflag);
+      }
+
+      if (force->kspace) {
+        force->kspace->setup();
+        if (kspace_compute_flag) force->kspace->compute(eflag,vflag);
+        else force->kspace->compute_dummy(eflag,vflag);
+      }
+
+      modify->setup_pre_reverse(eflag,vflag);
+      if (force->newton) comm->reverse_comm();
+      
+      double norm = 0;
+      for (int i = 0; i < atom->nlocal; i++){
+        if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
+          for (int j = 0; j < 3; j++){
+            norm += sqrt(atom->f[i][0]*atom->f[i][0] + atom->f[i][1]*atom->f[i][1] + atom->f[i][2]*atom->f[i][2]);
+          }
+        }
+      }
+
+      if (norm < min_y){
+        for (int i = 0; i < atom->nlocal; i++){
+          for (int j = 0; j < 3; j++){
+            // printf("drude position: %i %i %f %f %f\n", iter, k, atom->x[i][0], atom->x[i][1], atom->x[i][2]);
+            min_x[i][j] = atom->x[i][j];
+          }
+        }
+        // printf("FORCE NORM: %f\n", norm);
+        min_y = norm;
+        conv_condition = norm / (atom->nlocal);
+      }
+    }
+
+    for (int i = 0; i < atom->nlocal; i++){
+      for (int j = 0; j < 3; j++){
+        atom->x[i][j] = min_x[i][j];
+      }
+      printf("FINAL COORDS OF PARTICLE %i, ITERATION %i: %f %f %f\n", i+1, iter+1, min_x[i][0], min_x[i][1], min_x[i][2]);
+    }
+    printf("\n");
+
+    if (conv_condition < 0.0001) {break;}
+
     int nflag = neighbor->decide();
 
     if (nflag == 0) {
@@ -199,8 +341,7 @@ void FixMinDrude::pre_force(int /*vflag*/)
         modify->min_post_neighbor();
       }
     }
-
     // print the energy :)
-    printf("Energy: %f\n", force->pair->eng_vdwl + force->pair->eng_coul);
+    // printf("Energy: %f\n", force->pair->eng_vdwl + force->pair->eng_coul);
   }
 }
