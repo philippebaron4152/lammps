@@ -132,6 +132,9 @@ void FixMinDrude::force_clear()
 // void FixMinDrude::pre_force(int /*vflag*/)
 void FixMinDrude::pre_force(int /*vflag*/)
 {
+  // printf("\n");
+  // printf("MINIMIZING...\n");
+  // printf("\n");
   int natoms = int(atom->nlocal);
   double beta[3];
   double prev_force[natoms][3];
@@ -248,9 +251,9 @@ void FixMinDrude::pre_force(int /*vflag*/)
       }
     }
 
-    double alpha = 0.000001;
+    double alpha = 0.00002;
     double min_y = 1E10;
-    for (int k = 0; k < 2000; k++){
+    for (int k = 0; k < 100; k++){
       for (int i = 0; i < atom->nlocal; i++){
         if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
           for (int j = 0; j < 3; j++){
@@ -297,21 +300,25 @@ void FixMinDrude::pre_force(int /*vflag*/)
             min_x[i][j] = atom->x[i][j];
           }
         }
-        // printf("FORCE NORM: %f\n", norm);
         min_y = norm;
         conv_condition = norm / (atom->nlocal);
+      } else {
+        break;
       }
+      // printf("FORCE NORM ON STEP %i: %f\n", k, norm / (atom->nlocal));
     }
 
     for (int i = 0; i < atom->nlocal; i++){
       for (int j = 0; j < 3; j++){
         atom->x[i][j] = min_x[i][j];
       }
-      printf("FINAL COORDS OF PARTICLE %i, ITERATION %i: %f %f %f\n", i+1, iter+1, min_x[i][0], min_x[i][1], min_x[i][2]);
+      // printf("FINAL COORDS OF PARTICLE %i, ITERATION %i: %f %f %f\n", i+1, iter+1, min_x[i][0], min_x[i][1], min_x[i][2]);
     }
-    printf("\n");
-
-    if (conv_condition < 0.0001) {break;}
+    // printf("\n");
+    // printf("CONVERGENCE CONDITION - %f\n", conv_condition);
+    if (conv_condition < 0.001) {
+      break;
+    }
 
     int nflag = neighbor->decide();
 
