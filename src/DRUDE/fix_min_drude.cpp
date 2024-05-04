@@ -53,7 +53,7 @@ enum{CONSTANT,EQUAL};
 FixMinDrude::FixMinDrude(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg)
 {
-  maxiter = 10;
+  maxiter = 50;
   energy = 0.;
   fix_drude = nullptr;
 }
@@ -251,7 +251,7 @@ void FixMinDrude::pre_force(int /*vflag*/)
       }
     }
 
-    double alpha = 0.00002;
+    double alpha = 0.0001;
     double min_y = 1E10;
     for (int k = 0; k < 100; k++){
       for (int i = 0; i < atom->nlocal; i++){
@@ -301,7 +301,7 @@ void FixMinDrude::pre_force(int /*vflag*/)
           }
         }
         min_y = norm;
-        conv_condition = norm / (atom->nlocal);
+        conv_condition = norm;
       } else {
         break;
       }
@@ -312,11 +312,13 @@ void FixMinDrude::pre_force(int /*vflag*/)
       for (int j = 0; j < 3; j++){
         atom->x[i][j] = min_x[i][j];
       }
-      // printf("FINAL COORDS OF PARTICLE %i, ITERATION %i: %f %f %f\n", i+1, iter+1, min_x[i][0], min_x[i][1], min_x[i][2]);
+      if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
+        printf("FINAL FORCE OF PARTICLE %i, ITERATION %i: %f %f %f\n", i+1, iter+1, atom->f[i][0], atom->f[i][1], atom->f[i][2]);
+      }
     }
     // printf("\n");
     // printf("CONVERGENCE CONDITION - %f\n", conv_condition);
-    if (conv_condition < 0.001) {
+    if (conv_condition < 0.000001) {
       break;
     }
 
