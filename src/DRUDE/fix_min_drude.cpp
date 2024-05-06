@@ -129,23 +129,7 @@ void FixMinDrude::force_clear()
 
 /* ---------------------------------------------------------------------- */
 
-// void FixMinDrude::pre_force(int /*vflag*/)
-void FixMinDrude::pre_force(int /*vflag*/)
-{
-  // printf("\n");
-  // printf("MINIMIZING...\n");
-  // printf("\n");
-  int natoms = int(atom->nlocal);
-  double beta[3];
-  double prev_force[natoms][3];
-  double prev_dir[natoms][3];
-
-  force->setup();
-  int vflag = 0;
-  int eflag = 1;
-  int triclinic = domain->triclinic;
-
-  // initial force calcualtion
+void FixMinDrude::compute_forces(int eflag, int vflag){
   force_clear();
   modify->setup_pre_force(0); // should arg be 0?
 
@@ -167,7 +151,30 @@ void FixMinDrude::pre_force(int /*vflag*/)
 
   modify->setup_pre_reverse(eflag,vflag);
   if (force->newton) comm->reverse_comm();
+
+}
+
+/* ---------------------------------------------------------------------- */
+
+// void FixMinDrude::pre_force(int /*vflag*/)
+void FixMinDrude::pre_force(int /*vflag*/)
+{
+  // printf("\n");
+  // printf("MINIMIZING...\n");
+  // printf("\n");
+  int natoms = int(atom->nlocal);
+  double beta[3];
+  double prev_force[natoms][3];
+  double prev_dir[natoms][3];
   
+  int vflag = 0;
+  int eflag = 1;
+
+  force->setup();
+  int triclinic = domain->triclinic;
+
+  // initial force calcualtion
+  compute_forces(eflag, vflag);  
   for (int i = 0; i < atom->nlocal; i++){
     for (int j = 0; j < 3; j++){
       prev_force[i][j] = atom->f[i][j];
@@ -179,27 +186,7 @@ void FixMinDrude::pre_force(int /*vflag*/)
   for (int iter = 0; iter < maxiter; iter++){
 
     // move DOs
-    force_clear();
-    modify->setup_pre_force(0); // should arg be 0?
-
-    if (pair_compute_flag) force->pair->compute(eflag,vflag);
-    else if (force->pair) force->pair->compute_dummy(eflag,vflag);
-
-    if (atom->molecular != Atom::ATOMIC) {
-      if (force->bond) force->bond->compute(eflag,vflag);
-      if (force->angle) force->angle->compute(eflag,vflag);
-      if (force->dihedral) force->dihedral->compute(eflag,vflag);
-      if (force->improper) force->improper->compute(eflag,vflag);
-    }
-
-    if (force->kspace) {
-      force->kspace->setup();
-      if (kspace_compute_flag) force->kspace->compute(eflag,vflag);
-      else force->kspace->compute_dummy(eflag,vflag);
-    }
-
-    modify->setup_pre_reverse(eflag,vflag);
-    if (force->newton) comm->reverse_comm();
+    compute_forces(eflag, vflag);
 
     double new_force[natoms][3];
     double new_dir[natoms][3];
@@ -262,29 +249,10 @@ void FixMinDrude::pre_force(int /*vflag*/)
         }
       }
 
-      force_clear();
-      modify->setup_pre_force(0); // should arg be 0?
-
-      if (pair_compute_flag) force->pair->compute(eflag,vflag);
-      else if (force->pair) force->pair->compute_dummy(eflag,vflag);
-
-      if (atom->molecular != Atom::ATOMIC) {
-        if (force->bond) force->bond->compute(eflag,vflag);
-        if (force->angle) force->angle->compute(eflag,vflag);
-        if (force->dihedral) force->dihedral->compute(eflag,vflag);
-        if (force->improper) force->improper->compute(eflag,vflag);
-      }
-
-      if (force->kspace) {
-        force->kspace->setup();
-        if (kspace_compute_flag) force->kspace->compute(eflag,vflag);
-        else force->kspace->compute_dummy(eflag,vflag);
-      }
-
-      modify->setup_pre_reverse(eflag,vflag);
-      if (force->newton) comm->reverse_comm();
+      compute_forces(eflag, vflag);
       
       double norm = 0;
+      double global_norm = 0;
       for (int i = 0; i < atom->nlocal; i++){
         if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
           for (int j = 0; j < 3; j++){
@@ -292,6 +260,10 @@ void FixMinDrude::pre_force(int /*vflag*/)
           }
         }
       }
+      
+      // if (comm->me == 0) MPI_Allreduce(&norm,&global_norm,1,MPI_DOUBLE,MPI_SUM,world);
+      // norm = global_norm;
+      // MPI_Bcast(&norm,1,MPI_FLOAT,0,world);
 
       if (norm < min_y){
         for (int i = 0; i < atom->nlocal; i++){
@@ -312,16 +284,24 @@ void FixMinDrude::pre_force(int /*vflag*/)
       for (int j = 0; j < 3; j++){
         atom->x[i][j] = min_x[i][j];
       }
-      if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
-        printf("FINAL FORCE OF PARTICLE %i, ITERATION %i: %f %f %f\n", i+1, iter+1, atom->f[i][0], atom->f[i][1], atom->f[i][2]);
-      }
+      // if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
+      //   printf("FINAL FORCE OF PARTICLE %i, ITERATION %i: %f %f %f\n", i+1, iter+1, atom->f[i][0], atom->f[i][1], atom->f[i][2]);
+      // }
     }
     // printf("\n");
     // printf("CONVERGENCE CONDITION - %f\n", conv_condition);
     if (conv_condition < 0.000001) {
+      // for (int i = 0; i < atom->nlocal; i++){
+      //   if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
+      //     printf("FINAL FORCE OF PARTICLE %i, ITERATION %i: %f %f %f\n", i+1, iter+1, atom->f[i][0], atom->f[i][1], atom->f[i][2]);
+      //   }
+      // }
       break;
     }
 
+    // re-clear forces
+    force_clear();
+    // reneighbor and exchange
     int nflag = neighbor->decide();
 
     if (nflag == 0) {
