@@ -42,6 +42,7 @@ class FixMinDrude : public Fix {
   int tstyle_core, tstyle_drude;
   int tvar_core, tvar_drude;
   char *tstr_core, *tstr_drude;
+  int nmax;
   double energy;
   double **prev_force, **prev_dir, **new_dir, **new_force, **min_x;
   int tflag, torqueflag, extraflag, external_force_clear, pair_compute_flag, kspace_compute_flag;
