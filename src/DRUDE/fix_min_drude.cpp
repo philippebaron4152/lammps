@@ -51,8 +51,7 @@ using namespace FixConst;
 FixMinDrude::FixMinDrude(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg)
 {
-  maxiter = 10000;
-  energy = 0.;
+  // Default values
   fix_drude = nullptr;
 
   nmax = atom->nmax;
@@ -61,6 +60,17 @@ FixMinDrude::FixMinDrude(LAMMPS *lmp, int narg, char **arg) :
   memory->create(new_dir, nmax, 3, "min/drude:new_dir");
   memory->create(new_force, nmax, 3, "min/drude:new_force");
   memory->create(min_x, nmax, 3, "min/drude:min_x");
+  if (narg == 3){
+    maxiter = 15;
+    conv_tol = 0.000001;
+    alpha = 0.0001;
+    line_search_iter=100;
+  } else {
+    maxiter = utils::inumeric(FLERR,arg[3],false,lmp);
+    line_search_iter = utils::inumeric(FLERR,arg[4],false,lmp);
+    conv_tol = utils::numeric(FLERR,arg[5],false,lmp);
+    alpha = utils::numeric(FLERR,arg[6],false,lmp);
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -166,6 +176,7 @@ void FixMinDrude::pre_force(int /*vflag*/)
   // printf("\n");
   // printf("MINIMIZING...\n");
   // printf("\n");
+  int natoms = int(atom->nlocal);
   double beta[3];
 
   // reallocate arrays if neccesary
@@ -251,9 +262,8 @@ void FixMinDrude::pre_force(int /*vflag*/)
       }
     }
 
-    double alpha = 0.0001;
     double min_y = 1E10;
-    for (int k = 0; k < 100; k++){
+    for (int k = 0; k < line_search_iter; k++){
       for (int i = 0; i < atom->nlocal; i++){
         if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
           for (int j = 0; j < 3; j++){
@@ -279,7 +289,6 @@ void FixMinDrude::pre_force(int /*vflag*/)
       if (global_norm < min_y){
         for (int i = 0; i < atom->nlocal; i++){
           for (int j = 0; j < 3; j++){
-            // printf("drude position: %i %i %f %f %f\n", iter, k, atom->x[i][0], atom->x[i][1], atom->x[i][2]);
             min_x[i][j] = atom->x[i][j];
           }
         }
@@ -288,7 +297,6 @@ void FixMinDrude::pre_force(int /*vflag*/)
       } else {
         break;
       }
-      // printf("FORCE NORM ON STEP %i: %f\n", k, norm / (atom->nlocal));
     }
 
     for (int i = 0; i < atom->nlocal; i++){
@@ -296,18 +304,10 @@ void FixMinDrude::pre_force(int /*vflag*/)
         atom->x[i][j] = min_x[i][j];
       }
       if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
-        printf("FINAL FORCE OF PARTICLE %i, ITERATION %i: %f %f %f\n", i+1, iter+1, atom->f[i][0], atom->f[i][1], atom->f[i][2]);
-        printf("FINAL POSITION OF PARTICLE %i, ITERATION %i: %f %f %f\n", i+1, iter+1, atom->x[i][0], atom->x[i][1], atom->x[i][2]);
       }
     }
-    // printf("\n");
-    // printf("CONVERGENCE CONDITION - %f\n", conv_condition);
-    if (conv_condition < 0.000001) {
-      // for (int i = 0; i < atom->nlocal; i++){
-      //   if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
-      //     printf("FINAL FORCE OF PARTICLE %i, ITERATION %i: %f %f %f\n", i+1, iter+1, atom->f[i][0], atom->f[i][1], atom->f[i][2]);
-      //   }
-      // }
+
+    if (conv_condition < conv_tol) {
       break;
     }
 
@@ -342,8 +342,6 @@ void FixMinDrude::pre_force(int /*vflag*/)
         modify->min_post_neighbor();
       }
     }
-    // print the energy :)
-    // printf("Energy: %f\n", force->pair->eng_vdwl + force->pair->eng_coul);
   }
 }
 
