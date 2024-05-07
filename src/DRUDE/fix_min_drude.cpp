@@ -260,11 +260,8 @@ void FixMinDrude::pre_force(int /*vflag*/)
           }
         }
       }
-      // printf("processor %i: IM GONNA REDUCE: %f, %f\n", comm->me, norm, global_norm);
-      // fflush(stdout);
+      
       MPI_Allreduce(&norm,&global_norm,1,MPI_DOUBLE,MPI_SUM,world);
-      // printf("processor %i: MPI_COMPLETE, NORM: %f, GLOBAL_NORM: %f\n", comm->me, norm, global_norm);
-      // fflush(stdout);
 
       if (global_norm < min_y){
         for (int i = 0; i < atom->nlocal; i++){
