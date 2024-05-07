@@ -45,9 +45,6 @@
 using namespace LAMMPS_NS;
 using namespace FixConst;
 
-enum{NOBIAS,BIAS};
-enum{CONSTANT,EQUAL};
-
 /* ---------------------------------------------------------------------- */
 
 FixMinDrude::FixMinDrude(LAMMPS *lmp, int narg, char **arg) :
@@ -60,13 +57,7 @@ FixMinDrude::FixMinDrude(LAMMPS *lmp, int narg, char **arg) :
 
 /* ---------------------------------------------------------------------- */
 
-FixMinDrude::~FixMinDrude()
-{
-  delete random_core;
-  delete [] tstr_core;
-  delete random_drude;
-  delete [] tstr_drude;
-}
+FixMinDrude::~FixMinDrude(){}
 
 /* ---------------------------------------------------------------------- */
 
@@ -251,8 +242,7 @@ void FixMinDrude::pre_force(int /*vflag*/)
 
       compute_forces(eflag, vflag);
       
-      double norm = 0;
-      double global_norm = 0;
+      double norm = 0.0;
       for (int i = 0; i < atom->nlocal; i++){
         if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
           for (int j = 0; j < 3; j++){
@@ -261,6 +251,7 @@ void FixMinDrude::pre_force(int /*vflag*/)
         }
       }
       
+      double global_norm = 0.0;
       MPI_Allreduce(&norm,&global_norm,1,MPI_DOUBLE,MPI_SUM,world);
 
       if (global_norm < min_y){
