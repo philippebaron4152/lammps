@@ -29,6 +29,7 @@
 #include "input.h"
 #include "kspace.h"
 #include "modify.h"
+#include "memory.h"
 #include "random_mars.h"
 #include "update.h"
 #include "variable.h"
@@ -53,12 +54,24 @@ FixMinDrude::FixMinDrude(LAMMPS *lmp, int narg, char **arg) :
   maxiter = 50;
   energy = 0.;
   fix_drude = nullptr;
+
+  nmax = atom->nmax;
+  memory->create(prev_force, nmax, 3, "min/drude:prev_force");
+  memory->create(prev_dir, nmax, 3, "min/drude:prev_dir");
+  memory->create(new_dir, nmax, 3, "min/drude:new_dir");
+  memory->create(new_force, nmax, 3, "min/drude:new_force");
+  memory->create(min_x, nmax, 3, "min/drude:min_x");
 }
 
 /* ---------------------------------------------------------------------- */
 
-FixMinDrude::~FixMinDrude(){}
-
+FixMinDrude::~FixMinDrude(){
+  memory->destroy(prev_force);
+  memory->destroy(prev_dir);
+  memory->destroy(new_dir);
+  memory->destroy(new_force);
+  memory->destroy(min_x);
+}
 /* ---------------------------------------------------------------------- */
 
 int FixMinDrude::setmask()
@@ -153,11 +166,23 @@ void FixMinDrude::pre_force(int /*vflag*/)
   // printf("\n");
   // printf("MINIMIZING...\n");
   // printf("\n");
-  int natoms = int(atom->nlocal);
   double beta[3];
-  double prev_force[natoms][3];
-  double prev_dir[natoms][3];
-  
+
+  // reallocate arrays if neccesary
+  if (atom->nmax > nmax) {
+    nmax = atom->nmax;
+    memory->destroy(prev_force);
+    memory->destroy(prev_dir);
+    memory->destroy(new_dir);
+    memory->destroy(min_x);
+    memory->destroy(new_force);
+    memory->create(prev_force, nmax, 3, "min/drude:prev_force");
+    memory->create(prev_dir, nmax, 3, "min/drude:prev_dir");
+    memory->create(new_dir, nmax, 3, "min/drude:new_dir");
+    memory->create(new_force, nmax, 3, "min/drude:new_force");
+    memory->create(min_x, nmax, 3, "min/drude:min_x");
+  }
+
   int vflag = 0;
   int eflag = 1;
 
@@ -179,9 +204,6 @@ void FixMinDrude::pre_force(int /*vflag*/)
     // move DOs
     compute_forces(eflag, vflag);
 
-    double new_force[natoms][3];
-    double new_dir[natoms][3];
-    double min_x[natoms][3];
     for (int i = 0; i < atom->nlocal; i++){
       for (int j = 0; j < 3; j++){
         new_force[i][j] = atom->f[i][j];
@@ -322,4 +344,16 @@ void FixMinDrude::pre_force(int /*vflag*/)
     // print the energy :)
     // printf("Energy: %f\n", force->pair->eng_vdwl + force->pair->eng_coul);
   }
+}
+
+/* ---------------------------------------------------------------------- */
+
+double FixMinDrude::memory_usage(){
+  double bytes = 0;
+  bytes += memory->usage(prev_force, nmax, 3);
+  bytes += memory->usage(prev_dir, nmax, 3);
+  bytes += memory->usage(new_dir, nmax, 3);
+  bytes += memory->usage(new_dir, nmax, 3);
+  bytes += memory->usage(min_x, nmax, 3);
+  return bytes;
 }
