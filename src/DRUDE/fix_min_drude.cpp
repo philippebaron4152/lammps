@@ -29,6 +29,7 @@
 #include "input.h"
 #include "kspace.h"
 #include "modify.h"
+#include "memory.h"
 #include "random_mars.h"
 #include "update.h"
 #include "variable.h"
@@ -45,9 +46,6 @@
 using namespace LAMMPS_NS;
 using namespace FixConst;
 
-enum{NOBIAS,BIAS};
-enum{CONSTANT,EQUAL};
-
 /* ---------------------------------------------------------------------- */
 
 FixMinDrude::FixMinDrude(LAMMPS *lmp, int narg, char **arg) :
@@ -56,18 +54,24 @@ FixMinDrude::FixMinDrude(LAMMPS *lmp, int narg, char **arg) :
   maxiter = 10000;
   energy = 0.;
   fix_drude = nullptr;
+
+  nmax = atom->nmax;
+  memory->create(prev_force, nmax, 3, "min/drude:prev_force");
+  memory->create(prev_dir, nmax, 3, "min/drude:prev_dir");
+  memory->create(new_dir, nmax, 3, "min/drude:new_dir");
+  memory->create(new_force, nmax, 3, "min/drude:new_force");
+  memory->create(min_x, nmax, 3, "min/drude:min_x");
 }
 
 /* ---------------------------------------------------------------------- */
 
-FixMinDrude::~FixMinDrude()
-{
-  delete random_core;
-  delete [] tstr_core;
-  delete random_drude;
-  delete [] tstr_drude;
+FixMinDrude::~FixMinDrude(){
+  memory->destroy(prev_force);
+  memory->destroy(prev_dir);
+  memory->destroy(new_dir);
+  memory->destroy(new_force);
+  memory->destroy(min_x);
 }
-
 /* ---------------------------------------------------------------------- */
 
 int FixMinDrude::setmask()
@@ -162,11 +166,23 @@ void FixMinDrude::pre_force(int /*vflag*/)
   // printf("\n");
   // printf("MINIMIZING...\n");
   // printf("\n");
-  int natoms = int(atom->nlocal);
   double beta[3];
-  double prev_force[natoms][3];
-  double prev_dir[natoms][3];
-  
+
+  // reallocate arrays if neccesary
+  if (atom->nmax > nmax) {
+    nmax = atom->nmax;
+    memory->destroy(prev_force);
+    memory->destroy(prev_dir);
+    memory->destroy(new_dir);
+    memory->destroy(min_x);
+    memory->destroy(new_force);
+    memory->create(prev_force, nmax, 3, "min/drude:prev_force");
+    memory->create(prev_dir, nmax, 3, "min/drude:prev_dir");
+    memory->create(new_dir, nmax, 3, "min/drude:new_dir");
+    memory->create(new_force, nmax, 3, "min/drude:new_force");
+    memory->create(min_x, nmax, 3, "min/drude:min_x");
+  }
+
   int vflag = 0;
   int eflag = 1;
 
@@ -188,9 +204,6 @@ void FixMinDrude::pre_force(int /*vflag*/)
     // move DOs
     compute_forces(eflag, vflag);
 
-    double new_force[natoms][3];
-    double new_dir[natoms][3];
-    double min_x[natoms][3];
     for (int i = 0; i < atom->nlocal; i++){
       for (int j = 0; j < 3; j++){
         new_force[i][j] = atom->f[i][j];
@@ -251,8 +264,7 @@ void FixMinDrude::pre_force(int /*vflag*/)
 
       compute_forces(eflag, vflag);
       
-      double norm = 0;
-      double global_norm = 0;
+      double norm = 0.0;
       for (int i = 0; i < atom->nlocal; i++){
         if (atom->mask[i] & groupbit && fix_drude->drudetype[atom->type[i]] == DRUDE_TYPE){
           for (int j = 0; j < 3; j++){
@@ -261,19 +273,18 @@ void FixMinDrude::pre_force(int /*vflag*/)
         }
       }
       
-      // if (comm->me == 0) MPI_Allreduce(&norm,&global_norm,1,MPI_DOUBLE,MPI_SUM,world);
-      // norm = global_norm;
-      // MPI_Bcast(&norm,1,MPI_FLOAT,0,world);
+      double global_norm = 0.0;
+      MPI_Allreduce(&norm,&global_norm,1,MPI_DOUBLE,MPI_SUM,world);
 
-      if (norm < min_y){
+      if (global_norm < min_y){
         for (int i = 0; i < atom->nlocal; i++){
           for (int j = 0; j < 3; j++){
             // printf("drude position: %i %i %f %f %f\n", iter, k, atom->x[i][0], atom->x[i][1], atom->x[i][2]);
             min_x[i][j] = atom->x[i][j];
           }
         }
-        min_y = norm;
-        conv_condition = norm;
+        min_y = global_norm;
+        conv_condition = global_norm;
       } else {
         break;
       }
@@ -334,4 +345,16 @@ void FixMinDrude::pre_force(int /*vflag*/)
     // print the energy :)
     // printf("Energy: %f\n", force->pair->eng_vdwl + force->pair->eng_coul);
   }
+}
+
+/* ---------------------------------------------------------------------- */
+
+double FixMinDrude::memory_usage(){
+  double bytes = 0;
+  bytes += memory->usage(prev_force, nmax, 3);
+  bytes += memory->usage(prev_dir, nmax, 3);
+  bytes += memory->usage(new_dir, nmax, 3);
+  bytes += memory->usage(new_dir, nmax, 3);
+  bytes += memory->usage(min_x, nmax, 3);
+  return bytes;
 }
