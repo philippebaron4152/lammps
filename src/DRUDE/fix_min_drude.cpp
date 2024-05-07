@@ -260,20 +260,21 @@ void FixMinDrude::pre_force(int /*vflag*/)
           }
         }
       }
-      
-      // if (comm->me == 0) MPI_Allreduce(&norm,&global_norm,1,MPI_DOUBLE,MPI_SUM,world);
-      // norm = global_norm;
-      // MPI_Bcast(&norm,1,MPI_FLOAT,0,world);
+      // printf("processor %i: IM GONNA REDUCE: %f, %f\n", comm->me, norm, global_norm);
+      // fflush(stdout);
+      MPI_Allreduce(&norm,&global_norm,1,MPI_DOUBLE,MPI_SUM,world);
+      // printf("processor %i: MPI_COMPLETE, NORM: %f, GLOBAL_NORM: %f\n", comm->me, norm, global_norm);
+      // fflush(stdout);
 
-      if (norm < min_y){
+      if (global_norm < min_y){
         for (int i = 0; i < atom->nlocal; i++){
           for (int j = 0; j < 3; j++){
             // printf("drude position: %i %i %f %f %f\n", iter, k, atom->x[i][0], atom->x[i][1], atom->x[i][2]);
             min_x[i][j] = atom->x[i][j];
           }
         }
-        min_y = norm;
-        conv_condition = norm;
+        min_y = global_norm;
+        conv_condition = global_norm;
       } else {
         break;
       }
